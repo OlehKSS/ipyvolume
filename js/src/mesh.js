@@ -1,8 +1,8 @@
-var _ = require('underscore')
+var _ = require('underscore');
 var widgets = require('@jupyter-widgets/base');
-var THREE = require('three')
-var serialize = require('./serialize.js')
-var values = require('./values.js')
+var THREE = require('three');
+var serialize = require('./serialize.js');
+var values = require('./values.ts');
 var semver_range = require('./utils.js').semver_range;
 
 var MeshView = widgets.WidgetView.extend( {
@@ -209,10 +209,13 @@ var MeshView = widgets.WidgetView.extend( {
 
         var sequence_index = sequence_index_original = this.model.get("sequence_index");
         var sequence_index_previous = sequence_index_previous_original = sequence_index;
+
         if(typeof this.previous_values["sequence_index"] != "undefined") {
             sequence_index_previous = sequence_index_previous_original = this.previous_values["sequence_index"]
         }
+
         var time_offset, time_delta;
+
         if(sequence_index >= sequence_index_previous) {
             time_offset = sequence_index_previous - Math.floor(sequence_index_previous)
             time_delta = sequence_index - sequence_index_previous
@@ -239,21 +242,36 @@ var MeshView = widgets.WidgetView.extend( {
                     time_delta = sequence_index_previous-sequence_index_original
                 }
             }
-        }/**/
-        if(time_delta > 1) { // we're going over a 'keyframe' border
-            time_delta = time_delta % 1
-            if(time_delta == 0) // special case
-                time_delta = 1
-        }/**/
-				if(time_delta == 0) // occurs when we don't change keyframes, but just a property
-					time_delta = 1
+        }
+
+        if (time_delta > 1) { // we're going over a 'keyframe' border
+            time_delta = time_delta % 1;
+
+            if(time_delta == 0) {
+                // special case
+                time_delta = 1.;
+            }
+        }
+        
+        if (time_delta == 0) {
+            // occurs when we don't change keyframes, but just a property
+			time_delta = 1;
+        }
         //console.log('>>>', sequence_index, sequence_index_previous, time_offset, time_delta)
 
         var scalar_names = ['x', 'y', 'z', 'u', 'v'];
-        var vector3_names = ['color']
+        var vector4_names = ['color']
 
-        var current  = new values.Values(scalar_names, vector3_names, _.bind(this.get_current, this), sequence_index)
-        var previous = new values.Values(scalar_names, vector3_names, _.bind(this.get_previous, this), sequence_index_previous)
+        var current  = new values.Values(scalar_names,
+                                        [],
+                                        _.bind(this.get_current, this),
+                                        sequence_index,
+                                        vector4_names);
+        var previous = new values.Values(scalar_names,
+                                        [],
+                                        _.bind(this.get_previous, this),
+                                        sequence_index_previous,
+                                        vector4_names)
 
         var length = Math.max(current.length, previous.length)
         if(length == 0) {
@@ -264,34 +282,6 @@ var MeshView = widgets.WidgetView.extend( {
         previous.trim(previous.length)
         var previous_length = previous.length;
         var current_length = current.length;
-        /*if(this.model.get("selected") || this.previous_values["selected"]) {
-            // upgrade size and size_previous to an array if they were not already
-            current.ensure_array(['size', 'size_selected', 'color', 'color_selected'])
-            previous.ensure_array(['size', 'size_selected', 'color', 'color_selected'])
-            var selected = this.get_current('selected', sequence_index, []);
-            current.select(selected)
-            var selected = this.get_previous('selected', sequence_index_previous, []);
-            previous.select(selected)
-        }*/
-        // if we have a change in length, we use size to fade in/out particles, so make sure they are arrays
-        /*if(current.length != previous.length) {
-            current.ensure_array('size')
-            previous.ensure_array('size')
-        }
-        if(current.length > previous.length) { // grow..
-            previous.pad(current)
-            previous.array['size'].fill(0, previous_length); // this will make them smoothly fade in
-        } else if(current.length < previous.length) { // shrink..
-            current.pad(previous)
-            current.array['size'].fill(0, current_length); // this will make them smoothly fade out
-        }*/
-        // we are only guaranteed to have 16 attributes for the shader, so better merge some into single vectors
-        //current.merge_to_vec3(['vx', 'vy', 'vz'], 'v')
-        //previous.merge_to_vec3(['vx', 'vy', 'vz'], 'v')
-
-        // we don't want to send these to the shader, these are handled at the js side
-        //current.pop(['size_selected', 'color_selected'])
-        //previous.pop(['size_selected', 'color_selected'])
 
         if(current.length > previous.length) { // grow..
             previous.pad(current)
@@ -308,10 +298,10 @@ var MeshView = widgets.WidgetView.extend( {
         if(triangles) {
             triangles = triangles[0]
             var geometry = new THREE.BufferGeometry();
-            geometry.addAttribute('position', new THREE.BufferAttribute(current.array_vec3['vertices'], 3))
-            geometry.addAttribute('position_previous', new THREE.BufferAttribute(previous.array_vec3['vertices'], 3))
-            geometry.addAttribute('color', new THREE.BufferAttribute(current.array_vec3['color'], 3))
-            geometry.addAttribute('color_previous', new THREE.BufferAttribute(previous.array_vec3['color'], 3))
+            geometry.addAttribute('position', new THREE.BufferAttribute(current.array_vec3['vertices'], 3));
+            geometry.addAttribute('position_previous', new THREE.BufferAttribute(previous.array_vec3['vertices'], 3));
+            geometry.addAttribute('color', new THREE.BufferAttribute(current.array_vec4['color'], 4));
+            geometry.addAttribute('color_previous', new THREE.BufferAttribute(previous.array_vec4['color'], 4));
             geometry.setIndex(new THREE.BufferAttribute(triangles, 1))
             var texture = this.model.get('texture');
             var u = current.array['u']
@@ -333,44 +323,44 @@ var MeshView = widgets.WidgetView.extend( {
             // BUG? because of our custom shader threejs thinks our object if out
             // of the frustum
             this.surface_mesh.frustumCulled = false;
-            this.surface_mesh.material_rgb = this.material_rgb
-            this.surface_mesh.material_normal = this.material
-            this.meshes.push(this.surface_mesh)
+            this.surface_mesh.material_rgb = this.material_rgb;
+            this.surface_mesh.material_normal = this.material;
+            this.meshes.push(this.surface_mesh);
         }
 
-	    var lines = this.model.get('lines')
+	    var lines = this.model.get('lines');
 	    if(lines) {
             var geometry = new THREE.BufferGeometry();
 
-            geometry.addAttribute('position', new THREE.BufferAttribute(current.array_vec3['vertices'], 3))
-            geometry.addAttribute('position_previous', new THREE.BufferAttribute(previous.array_vec3['vertices'], 3))
-            var color = new THREE.BufferAttribute(current.array_vec3['color'], 3)
+            geometry.addAttribute('position', new THREE.BufferAttribute(current.array_vec3['vertices'], 3));
+            geometry.addAttribute('position_previous', new THREE.BufferAttribute(previous.array_vec3['vertices'], 3));
+            var color = new THREE.BufferAttribute(current.array_vec4['color'], 4);
             color.normalized = true;
-            geometry.addAttribute('color', color)
-            var color_previous = new THREE.BufferAttribute(previous.array_vec3['color'], 3)
+            geometry.addAttribute('color', color);
+            var color_previous = new THREE.BufferAttribute(previous.array_vec4['color'], 4);
             color_previous.normalized = true;
-            geometry.addAttribute('color_previous', color_previous)
+            geometry.addAttribute('color_previous', color_previous);
             var indices = new Uint32Array(lines[0]);
-            geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+            geometry.setIndex(new THREE.BufferAttribute(indices, 1));
 
             this.line_segments = new THREE.LineSegments(geometry, this.line_material);
             this.line_segments.frustumCulled = false;
             //TODO: check lines with volume rendering, also in scatter
-            this.line_segments.material_rgb = this.line_material_rgb
-            this.line_segments.material_normal = this.line_material
-            this.meshes.push(this.line_segments)
+            this.line_segments.material_rgb = this.line_material_rgb;
+            this.line_segments.material_normal = this.line_material;
+            this.meshes.push(this.line_segments);
         } else {
             this.line_segments = null;
         }
 
 
         _.mapObject(this.attributes_changed, function(changed_properties, key){
-            var property = "animation_time_" + key
+            var property = "animation_time_" + key;
             //console.log("animating", key)
             var done = function done() {
                 _.each(changed_properties, function clear(prop) {
-                    delete this.previous_values[prop] // may happen multiple times, that is ok
-                }, this)
+                    delete this.previous_values[prop]; // may happen multiple times, that is ok
+                }, this);
             }
             // uniforms of material_rgb has a reference to these same object
             //this.renderer.transition(this.material.uniforms[property], "value", done, this)
@@ -378,7 +368,7 @@ var MeshView = widgets.WidgetView.extend( {
                 this.material.uniforms[property]['value'] = time_offset + time_delta * value;
             }, done, this);
         }, this)
-        this.attributes_changed = {}
+        this.attributes_changed = {};
     }
 });
 

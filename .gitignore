@@ -106,3 +106,6 @@ ENV/
 js/node_modules/
 # Javascript Build files
 static/
+
+# Visual Studio Code
+.vscode/
